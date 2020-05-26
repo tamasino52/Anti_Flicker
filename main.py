@@ -1,11 +1,9 @@
 import cv2
 import argparse
-import time
-import itertools
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import fftpack
-import random
+from progressbar import progressbar
+import math
 from sklearn.linear_model import LinearRegression
 
 # Flags setting
@@ -28,7 +26,7 @@ def main():
     assert (measure > 10), 'Measure option value must be greater than 10'
 
     # Get intensity cycle of video
-    cycle = getPriorCycle(measure, False)
+    cycle = getPriorCycle(measure, True)
     print('(INFO) VIDEO CYCLE : {}'.format(cycle))
 
     # Get Linear Regression filter
@@ -70,6 +68,7 @@ def removeFlicker(line_filter: LinearRegression, cycle: int, show_frame: bool = 
     assert type(cycle) is int, 'TYPE ERROR : CYCLE IS NOT INTEGER'
     assert cycle > 0, 'INVALID PARAMETER ERROR : CYCLE VALUE IS INVALID'
 
+    count = 1
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -85,8 +84,11 @@ def removeFlicker(line_filter: LinearRegression, cycle: int, show_frame: bool = 
         correct_frame = cv2.merge((corr_b, corr_g, corr_r))
 
         if show_frame:
-            cv2.imshow('Anti-Filcker Result', np.hstack([correct_frame, frame]))
-            cv2.waitKey(1)
+            cv2.imshow('Anti-Filcker Result', np.vstack([correct_frame, frame]))
+            cv2.imwrite('AntiFlicker' + str(count) + '.jpg', correct_frame)
+            cv2.imwrite('original' + str(count) + '.jpg', frame)
+            count += 1
+            cv2.waitKey(1000)
 
 # Make blended frames per cycle offset first, then train Linear Regression model
 @ video_process(video_path)
@@ -99,7 +101,7 @@ def getLineFilter(measure: int, cycle: int, show_plot: bool = False, cap: cv2.Vi
     meanCycleImg = [0] * cycle
     numOverlap = [0] * cycle
 
-    for idx in range(measure):
+    for idx in progressbar(range(measure)):
         ret, frame = cap.read()
         if not ret:
             break
@@ -129,7 +131,7 @@ def getLineFilter(measure: int, cycle: int, show_plot: bool = False, cap: cv2.Vi
     line_filter = [0] * cycle
     if show_plot:
         plt.figure()
-    for idx in range(cycle):
+    for idx in progressbar(range(cycle)):
         b, g, r = cv2.split(meanCycleImg[idx])
         flat_b, flat_g, flat_r = b.flatten(), g.flatten(), r.flatten()
 
@@ -197,7 +199,7 @@ def getPriorCycle(measure: int, show_plot: bool = False, cap: cv2.VideoCapture =
         return np.sum(image) / np.size(image)
 
     video_intensity = []
-    for idx in range(measure):
+    for _ in progressbar(range(measure)):
         ret, frame = cap.read()
         if not ret:
             break
@@ -228,14 +230,15 @@ def getPriorCycle(measure: int, show_plot: bool = False, cap: cv2.VideoCapture =
     prior_frequency = np.argmax(frequency[int(measure / 2) + 1:])
 
     # Get frame cycle
-    cycle = int(measure/prior_frequency)
+    cycle = int(measure / prior_frequency)
 
-    # Cycle intencity float
+    # Cycle intensity float
     if show_plot:
         plt.figure(figsize=(10, 10))
-        for idx in range(int(cycle)):
-            plt.subplot(int(cycle/2) + 1, 2, idx + 1)
-            plt.plot(range(np.size(video_intensity[idx::cycle])), video_intensity[idx::cycle], '.-')
+        for idx in range(int(math.ceil(cycle))):
+            plt.subplot(int(math.ceil(cycle/2)), 2, idx + 1)
+            offset_class = video_intensity[idx::int(math.ceil(cycle))]
+            plt.plot(range(np.size(offset_class)), offset_class, '.-')
             plt.title('Cycle {}'.format(idx))
         plt.show()
 
