@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from progressbar import progressbar
 import math
+import time
+
 from sklearn.linear_model import LinearRegression
 
 # Flags setting
@@ -11,42 +13,42 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-v", "--video", default="video/C0183.MP4", help="Process a path of video.")
 parser.add_argument("--no_display", default=False, type=bool, help="Enable to disable the visual display.")
 parser.add_argument("-o", "--output", default='output', help="Process a path of output video")
-parser.add_argument("-m", "--measure", default=500, type=int, help="Number of frames to check flicker frequency. \
-                                                    A higher measure value can be more accurate and slower.")
+
 args = parser.parse_known_args()
 
+# Flag option value initialization
 video_path = args[0].video
+measure = float('inf')
 
 
 def main():
-    # Flag option value initialization
-    measure = args[0].measure
-
-    # Validity check
-    assert (measure > 10), 'Measure option value must be greater than 10'
-
     # Get intensity cycle of video
-    cycle = getPriorCycle(measure, True)
+    cycle = getPriorCycle(True)
     print('(INFO) VIDEO CYCLE : {}'.format(cycle))
 
     # Get Linear Regression filter
-    line_filter = getLineFilter(measure, cycle, True)
-    removeFlicker(line_filter, cycle, True)
+    #line_filter = getLineFilter(cycle, True)
+    removeFlicker(cycle, True)
 
 
 # Chck Video validity
 def video_process(path):
     def wrapper(func):
         def decorator(*args, **kwargs):
+            global measure
             cap = cv2.VideoCapture(path)
             assert cap.isOpened(), 'Unable to load video. check your video path.'
-            print('(INFO) PATH: {} / WIDTH: {} / HEIGHT : {} / COUNT : {}'.format(path,
-                                                                                  int(cap.get(
-                                                                                      cv2.CAP_PROP_FRAME_WIDTH)),
-                                                                                  int(cap.get(
-                                                                                      cv2.CAP_PROP_FRAME_HEIGHT)),
-                                                                                  int(cap.get(
-                                                                                      cv2.CAP_PROP_FRAME_COUNT))))
+            print('(INFO) Iterating Video Source ...'
+                  '\nPATH: {}'
+                  '\nWIDTH: {}'
+                  '\nHEIGHT : {}'
+                  '\nCOUNT : {}\n'.format(path,
+                                          int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                                          int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                                          int(cap.get(cv2.CAP_PROP_FRAME_COUNT))))
+            if measure > int(cap.get(cv2.CAP_PROP_FRAME_COUNT)):
+                measure = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            time.sleep(1)
             result = func(*args, cap=cap, **kwargs)
             cap.release()
             return result
@@ -56,7 +58,7 @@ def video_process(path):
 
 # Show video frames removed flicker effect
 @ video_process(video_path)
-def removeFlicker(line_filter: LinearRegression, cycle: int, show_frame: bool = False, cap: cv2.VideoCapture = None):
+def removeFlicker(cycle: int, show_frame: bool = False, cap: cv2.VideoCapture = None):
     def predict_regression(X, regression):
         coef, intercept = regression[0], regression[1]
         y = X.astype(np.float64)
@@ -68,40 +70,65 @@ def removeFlicker(line_filter: LinearRegression, cycle: int, show_frame: bool = 
     assert type(cycle) is int, 'TYPE ERROR : CYCLE IS NOT INTEGER'
     assert cycle > 0, 'INVALID PARAMETER ERROR : CYCLE VALUE IS INVALID'
 
-    count = 1
-    while True:
+    corr_intensity = []
+    orig_intensity = []
+    ref_frame = None
+
+    for _ in progressbar(range(measure), bar='smooth'):
         ret, frame = cap.read()
         if not ret:
             break
 
         offset = int((cap.get(cv2.CAP_PROP_POS_FRAMES) - 1) % cycle)
+        if offset == 0:
+            ref_frame = np.zeros_like(frame).astype(np.float_)
+            frame_idx = cap.get(cv2.CAP_PROP_POS_FRAMES)
 
-        b, g, r = cv2.split(frame)
-        corr_b = predict_regression(b, line_filter[offset][2])
-        corr_g = predict_regression(g, line_filter[offset][1])
-        corr_r = predict_regression(r, line_filter[offset][0])
+            for _ in range(cycle):
+                ref_frame += frame
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-        correct_frame = cv2.merge((corr_b, corr_g, corr_r))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+
+            ref_frame /= cycle
+            ref_frame = ref_frame.astype(np.uint8)
+
+        corr_frame = np.zeros_like(frame)
+        for color in range(3):
+            line_filter = LinearRegression(fit_intercept=True)
+            line_filter.fit(frame[:, :, color].reshape(-1, 1), ref_frame[:, :, color].reshape(-1, 1))
+            corr_frame[:, :, color] = predict_regression(frame[:, :, color], (line_filter.coef_[0][0], line_filter.intercept_[0]))
+
+        orig_intensity.append(getIntensity(frame))
+        corr_intensity.append(getIntensity(corr_frame))
 
         if show_frame:
-            cv2.imshow('Anti-Filcker Result', np.vstack([correct_frame, frame]))
-            #cv2.imwrite('AntiFlicker' + str(count) + '.jpg', correct_frame)
-            #cv2.imwrite('original' + str(count) + '.jpg', frame)
-            count += 1
-            cv2.waitKey(1000)
+            cv2.imshow('Anti-Filcker Result', np.hstack([corr_frame, frame]))
+            cv2.waitKey(1)
+
+    if show_frame:
+        # intensity plot
+        plt.figure(figsize=(10, 10))
+        plt.subplot(1, 1, 1)
+        plt.plot(range(len(corr_intensity)), corr_intensity, '.')
+        plt.plot(range(len(corr_intensity)), orig_intensity, '.')
+        plt.xlabel('Frame number')
+        plt.ylabel('Average intensity')
+        plt.show()
 
 # Make blended frames per cycle offset first, then train Linear Regression model
 @ video_process(video_path)
-def getLineFilter(measure: int, cycle: int, show_plot: bool = False, cap: cv2.VideoCapture = None):
+def getLineFilter(cycle: int, show_plot: bool = False, cap: cv2.VideoCapture = None):
     assert type(cycle) is int, 'TYPE ERROR : CYCLE IS NOT INTEGER'
-    assert type(measure) is int, 'TYPE ERROR : MEASURE IS NOT INTEGER'
     assert cycle > 0, 'INVALID PARAMETER ERROR : CYCLE VALUE IS INVALID'
     assert measure > 10, 'INVALID PARAMETER ERROR : MEASURE VALUE IS INVALID'
 
     meanCycleImg = [0] * cycle
     numOverlap = [0] * cycle
 
-    for idx in progressbar(range(measure)):
+    for idx in progressbar(range(measure), bar='smooth'):
         ret, frame = cap.read()
         if not ret:
             break
@@ -131,7 +158,7 @@ def getLineFilter(measure: int, cycle: int, show_plot: bool = False, cap: cv2.Vi
     line_filter = [0] * cycle
     if show_plot:
         plt.figure()
-    for idx in progressbar(range(cycle)):
+    for idx in progressbar(range(cycle), bar='smooth'):
         b, g, r = cv2.split(meanCycleImg[idx])
         flat_b, flat_g, flat_r = b.flatten(), g.flatten(), r.flatten()
 
@@ -189,17 +216,17 @@ def getLineFilter(measure: int, cycle: int, show_plot: bool = False, cap: cv2.Vi
     return line_filter
 
 
+# Return average pixel value
+def getIntensity(image: np.ndarray) -> float:
+    return np.sum(image) / np.size(image)
+
+
 # After FFT, return video cycle
 @ video_process(video_path)
-def getPriorCycle(measure: int, show_plot: bool = False, cap: cv2.VideoCapture = None) -> float:
-    assert type(measure) is int, 'TYPE ERROR : MEASURE IS NOT INTEGER'
-
-    # Return average pixel value
-    def getIntensity(image: np.ndarray) -> float:
-        return np.sum(image) / np.size(image)
+def getPriorCycle(show_plot: bool = False, cap: cv2.VideoCapture = None) -> float:
 
     video_intensity = []
-    for _ in progressbar(range(measure)):
+    for _ in progressbar(range(measure), bar='smooth'):
         ret, frame = cap.read()
         if not ret:
             break
@@ -216,13 +243,13 @@ def getPriorCycle(measure: int, show_plot: bool = False, cap: cv2.VideoCapture =
         # intensity plot
         plt.figure(figsize=(10, 10))
         plt.subplot(2, 1, 1)
-        plt.plot(range(measure), video_intensity, '.-')
+        plt.plot(range(measure), video_intensity, '.')
         plt.xlabel('Frame number')
         plt.ylabel('Average intensity')
 
         # frequency plot
         plt.subplot(2, 1, 2)
-        plt.plot(range(int(-measure / 2), int(measure / 2)), frequency, '.-')
+        plt.plot(range(int(-measure / 2), int(measure / 2)), frequency, '-')
         plt.xlabel('Frequency')
         plt.show()
 
@@ -230,16 +257,25 @@ def getPriorCycle(measure: int, show_plot: bool = False, cap: cv2.VideoCapture =
     prior_frequency = np.argmax(frequency[int(measure / 2) + 1:])
 
     # Get frame cycle
-    cycle = int(measure / prior_frequency)
+    cycle = math.floor(measure / prior_frequency)
 
     # Cycle intensity float
     if show_plot:
-        plt.figure(figsize=(10, 10))
-        for idx in range(int(math.ceil(cycle))):
-            plt.subplot(int(math.ceil(cycle/2)), 2, idx + 1)
-            offset_class = video_intensity[idx::int(math.ceil(cycle))]
-            plt.plot(range(np.size(offset_class)), offset_class, '.-')
-            plt.title('Cycle {}'.format(idx))
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_subplot(111)
+        offset = [math.fmod(x, cycle) for x in range(len(video_intensity))]
+        ax.scatter(range(len(video_intensity)), video_intensity, c=offset, cmap='hsv')
+        ax.set_xlabel('Frame Number')
+        ax.set_ylabel('Frame Intensity')
+        plt.show()
+
+        fig = plt.figure(figsize=(10, 10))
+        ax = fig.add_subplot(111, projection='3d')
+        offset = [math.fmod(x, cycle) for x in range(len(video_intensity))]
+        ax.scatter(range(len(video_intensity)), video_intensity, offset, c=offset, cmap='hsv')
+        ax.set_xlabel('Frame Number')
+        ax.set_ylabel('Frame Intensity')
+        ax.set_zlabel('Offset')
         plt.show()
 
     # Return prior cycle
