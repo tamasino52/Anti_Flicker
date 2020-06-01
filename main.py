@@ -46,14 +46,6 @@ def main():
     removeFlicker(cycle, show_plot=True)
 
 
-# Open video
-def open_video(func):
-    def decorator(*args, **kwargs):
-        result = func(*args, **kwargs)
-        return result
-    return decorator
-
-
 # Show video frames removed flicker effect
 def removeFlicker(cycle: int, show_plot: bool = False):
     assert cycle > 0, 'INVALID PARAMETER ERROR : CYCLE VALUE IS INVALID'
@@ -125,10 +117,11 @@ def removeFlicker(cycle: int, show_plot: bool = False):
         # intensity plot
         plt.figure(figsize=(10, 10))
         plt.subplot(1, 1, 1)
-        plt.plot(range(len(corr_intensity)), corr_intensity, '.')
-        plt.plot(range(len(corr_intensity)), orig_intensity, '.')
+        plt.scatter(range(len(corr_intensity)), corr_intensity, marker='.', label='Corrected video')
+        plt.scatter(range(len(corr_intensity)), orig_intensity, marker='.', label='Original video')
+        plt.legend(loc='upper left')
         plt.xlabel('Frame number')
-        plt.ylabel('Average intensity')
+        plt.ylabel('Intensity')
         plt.show()
 
 
