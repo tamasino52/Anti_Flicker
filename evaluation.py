@@ -11,7 +11,7 @@ from sklearn.linear_model import LinearRegression
 
 # Get flag option value
 video_path = './video/C0183.MP4'
-output_path = './output/corr_C0183.MP4'
+output_path = './output/blended_C0183.MP4'
 
 # Set video variables
 cap = cv2.VideoCapture(video_path)
@@ -30,15 +30,16 @@ print('INPUT PATH = {}\nPROPS FPS = {}\nPROPS SIZE = ({}, {})\nTOTAL FRAME = {}\
 
 
 def main():
-    measure = 100
-    original_intensity = np.array([])
-    corrected_intensity = np.array([])
+    measure = 50
+    #original_intensity = np.array([])
+    #corrected_intensity = np.array([])
+    cap = cv2.VideoCapture('./output/blended_C0183.MP4')
     for idx in range(measure):
         ret, frame = cap.read()
         if not ret:
             break
-        cv2.imwrite('./figure/origin_{}.jpg'.format(idx), frame)
-        original_intensity = np.append(original_intensity, getIntensity(frame))
+        cv2.imwrite('./figure/final_{}.jpg'.format(idx), frame)
+        #original_intensity = np.append(original_intensity, getIntensity(frame))
 
     cap.open(output_path)
     for idx in range(measure):
@@ -118,7 +119,20 @@ def getIntensity(image: np.ndarray) -> float:
 
 
 if __name__ == '__main__':
-    main()
-    cap.release()
-    cv2.destroyAllWindows()
+    final = cv2.imread('./figure/final_15.jpg')
+    middle = cv2.imread('./figure/middle_15.jpg')
+    origin = cv2.imread('./figure/origin_15.jpg')
+
+    cv2.imshow('final', final[450:650, 1250:1550])
+    cv2.imwrite('./figure/final.jpg', final[450:650, 1250:1550])
+    cv2.waitKey(0)
+
+    cv2.imwrite('./figure/middle.jpg', middle[450:650, 1250:1550])
+    cv2.waitKey(0)
+
+    cv2.imwrite('./figure/origin.jpg', origin[450:650, 1250:1550])
+    cv2.waitKey(0)
+    #main()
+    #cap.release()
+    #cv2.destroyAllWindows()
     print('Finish')
