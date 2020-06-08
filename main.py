@@ -11,8 +11,8 @@ from sklearn.linear_model import LinearRegression
 
 # Flag option setting
 parser = argparse.ArgumentParser()
-parser.add_argument("-v", "--video", default="./video/C0183.MP4", help="path of original video.")
-parser.add_argument("--no_display", default=False, type=bool, help="Enable to disable the visual display.")
+parser.add_argument("-v", "--video", default="./video/C0181.MP4", help="path of original video.")
+parser.add_argument("--show_plot", default=False, type=bool, help="Enable to display plot.")
 parser.add_argument("-i", "--interim", default='./interim', help="path of interim video")
 parser.add_argument("-o", "--output", default='./output', help="path of output video")
 args = parser.parse_known_args()
@@ -22,36 +22,61 @@ video_path = args[0].video
 output_path = os.path.join(args[0].output, os.path.split(video_path)[1])
 interim_path = os.path.join(args[0].interim, os.path.split(video_path)[1])
 
-# Set video variables
-cap = cv2.VideoCapture(video_path)
-assert cap.isOpened(), 'Unable to load video. check your video path.'
-
-fourcc = cv2.VideoWriter_fourcc(*'DIVX')
-prop_fps = int(cap.get(cv2.CAP_PROP_FPS))
-prop_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-prop_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-prop_channer = 3
-prop_size = (prop_height, prop_width, prop_channer)
-out = cv2.VideoWriter(output_path, fourcc, prop_fps, (prop_width, prop_height))
-total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))  # number of total frame
-bar = progressbar.ProgressBar(maxval=total_frame)
-
-# Prompt information
-print('INPUT PATH = {}\nPROPS FPS = {}\nPROPS SIZE = ({}, {})\nTOTAL FRAME = {}\n'.format(
-    video_path, prop_fps, prop_height, prop_width, total_frame))
-cap.release()
-
 
 def main():
-    # Prior flicker cycle extraction
-    cycle = getPriorCycle(video_path, show_plot=True)
-    print('FLICKER CYCLE = {}\n'.format(cycle))
 
-    # Luminance Equalization
-    equalLuminance(video_path, interim_path, cycle, show_plot=True)
+    if not os.path.exists(interim_path):
+        # Prior flicker cycle extraction
+        cycle = getPriorCycle(video_path, show_plot=show_plot)
+        print('FLICKER CYCLE = {}\n'.format(cycle))
+
+        # Luminance Equalization
+        equalLuminance(video_path, interim_path, cycle, show_plot=show_plot)
+
+    if os.path.exists(interim_path):
+        # Frame blending
+        blendFrames(interim_path, output_path, kernel_size=7)
 
 
-# Show video frames removed flicker effect
+def blendFrames(input_path: str, output_path: str, kernel_size: int):
+    # Video setting
+    cap = cv2.VideoCapture(input_path)
+    assert cap.isOpened(), 'Unable to load video. check your video path.'
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    prop_fps = int(cap.get(cv2.CAP_PROP_FPS))
+    prop_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    prop_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    out = cv2.VideoWriter(output_path, fourcc, prop_fps, (prop_width, prop_height))
+    total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))  # number of total frame
+
+    # Gaussian kernel
+    kernel = cv2.getGaussianKernel(kernel_size, sigma=1)
+
+    # frame padding (0 and EOF)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frame-1)
+    ret, last_frame = cap.read()
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    ret, first_frame = cap.read()
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    frames = [first_frame] * int(kernel_size / 2)
+
+    print('Frame Blending ...')
+    for _ in pbar(range(total_frame)):
+        while len(frames) < kernel_size:
+            ret, frame = cap.read()
+            if not ret:
+                frame = last_frame[:]
+                frames.append(last_frame)
+            else:
+                frames.append(frame)
+        blended_frame = np.zeros_like(frame)
+        for i, w in enumerate(kernel):
+            blended_frame = cv2.addWeighted(blended_frame, 1, frames[i], w, 0)
+        out.write(blended_frame)
+        del frames[0]
+
+
+# Luminance equalization of video
 def equalLuminance(input_path: str, output_path: str, cycle: int, show_plot: bool = False):
     assert cycle > 0, 'INVALID PARAMETER ERROR : CYCLE VALUE IS INVALID'
 
@@ -63,23 +88,33 @@ def equalLuminance(input_path: str, output_path: str, cycle: int, show_plot: boo
         y[y < 0] = 0
         return y.astype(np.uint8)
 
+    # Video setting
+    cap = cv2.VideoCapture(input_path)
+    assert cap.isOpened(), 'Unable to load video. check your video path.'
+    fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+    prop_fps = int(cap.get(cv2.CAP_PROP_FPS))
+    prop_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    prop_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    prop_channer = 3
+    prop_size = (prop_height, prop_width, prop_channer)
+    out = cv2.VideoWriter(output_path, fourcc, prop_fps, (prop_width, prop_height))
+    total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))  # number of total frame
+    bar = progressbar.ProgressBar(maxval=total_frame)
+
+    # Initialize loop
     corr_intensity = []  # corrected video intensity
     orig_intensity = []  # original video intensity
-
-    # Video loop
-    print('Removing all flicker ...')
-    cap = cv2.VideoCapture()
-    cap.open(video_path)
+    print('Luminance Equalizing ...')
     bar.start()
+
     while True:
         # Variables initialization
         cycle_frames = []  # original frame list in same cycle
         corr_frames = []  # corrected frame list in same cycle
         ref_frame = np.zeros(prop_size, dtype=np.float_)  # mean of frames in same cycle
         frame_idx = cap.get(cv2.CAP_PROP_POS_FRAMES)  # frame number
-        ret = False  # frame validity
 
-        # Scan frame cycle
+        # Scan one cycle
         for _ in range(cycle):
             ret, frame = cap.read()
             if not ret:
@@ -92,7 +127,7 @@ def equalLuminance(input_path: str, output_path: str, cycle: int, show_plot: boo
         ref_frame /= len(cycle_frames)
         ref_frame = ref_frame.astype(np.uint8)
 
-        # Flicker removal using linear regression
+        # Linear regression
         for offset in range(len(cycle_frames)):
             corr_frame = np.zeros((prop_height, prop_width, prop_channer), dtype=np.uint8)
             for color in range(prop_channer):
@@ -106,9 +141,6 @@ def equalLuminance(input_path: str, output_path: str, cycle: int, show_plot: boo
         for offset in range(len(cycle_frames)):
             orig_intensity.append(getIntensity(cycle_frames[offset]))
             corr_intensity.append(getIntensity(corr_frames[offset]))
-            if show_plot:
-                cv2.imshow('Anti-Filcker Result', np.hstack([corr_frames[offset], cycle_frames[offset]]))
-                cv2.waitKey(1)
             bar.update(int(frame_idx + offset))
 
             # Write corrected video
@@ -130,6 +162,10 @@ def equalLuminance(input_path: str, output_path: str, cycle: int, show_plot: boo
         plt.ylabel('Intensity')
         plt.show()
 
+    # Destroyer
+    cap.release()
+    out.release()
+
 
 # Return average pixel value of single frame
 def getIntensity(image: np.ndarray) -> float:
@@ -137,12 +173,16 @@ def getIntensity(image: np.ndarray) -> float:
 
 
 # Return flicker cycle of video
-def getPriorCycle(path: str, show_plot: bool = False) -> float:
+def getPriorCycle(input_path: str, show_plot: bool = False) -> float:
+    # Set video variables
+    cap = cv2.VideoCapture(input_path)
+    assert cap.isOpened(), 'Unable to load video. check your video path.'
+    total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))  # number of total frame
+    bar = progressbar.ProgressBar(maxval=total_frame)
     video_intensity = []  # frame intensity list
 
     # Read all frame to get intensity
     print('Scanning all frame Intensity ...')
-    cap.open(video_path)
     bar.start()
     for idx in range(total_frame):
         bar.update(idx)
@@ -195,7 +235,4 @@ def getPriorCycle(path: str, show_plot: bool = False) -> float:
 
 if __name__ == '__main__':
     main()
-    cap.release()
-    out.release()
-    cv2.destroyAllWindows()
     print('Finish')
