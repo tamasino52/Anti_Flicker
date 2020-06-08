@@ -11,8 +11,8 @@ from sklearn.linear_model import LinearRegression
 
 
 # Get flag option value
-video_path = './output/corr_C0183.MP4'
-output_path = './output/blended_C0183.MP4'
+video_path = './video/C0185.MP4'
+output_path = './C0185.MP4'
 
 # Set video variables
 cap = cv2.VideoCapture(video_path)
@@ -58,7 +58,14 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+
+    for _ in progressbar(range(1500)):
+        ret, frame = cap.read()
+        if not ret:
+            break
+        out.write(frame)
+
+    #main()
     cap.release()
     out.release()
     cv2.destroyAllWindows()

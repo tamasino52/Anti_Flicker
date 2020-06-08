@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import progressbar
+from progressbar import progressbar as pbar
 import math
 import time
 import os
@@ -10,18 +11,21 @@ from sklearn.linear_model import LinearRegression
 
 # Flag option setting
 parser = argparse.ArgumentParser()
-parser.add_argument("-v", "--video", default="./video/C0183.MP4", help="Process a path of video.")
+parser.add_argument("-v", "--video", default="./video/C0183.MP4", help="path of original video.")
 parser.add_argument("--no_display", default=False, type=bool, help="Enable to disable the visual display.")
-parser.add_argument("-o", "--output", default='./output', help="Process a path of output video")
+parser.add_argument("-i", "--interim", default='./interim', help="path of interim video")
+parser.add_argument("-o", "--output", default='./output', help="path of output video")
 args = parser.parse_known_args()
 
-# Get flag option value
+# Path initilization
 video_path = args[0].video
 output_path = os.path.join(args[0].output, os.path.split(video_path)[1])
+interim_path = os.path.join(args[0].interim, os.path.split(video_path)[1])
 
 # Set video variables
 cap = cv2.VideoCapture(video_path)
 assert cap.isOpened(), 'Unable to load video. check your video path.'
+
 fourcc = cv2.VideoWriter_fourcc(*'DIVX')
 prop_fps = int(cap.get(cv2.CAP_PROP_FPS))
 prop_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -32,22 +36,23 @@ out = cv2.VideoWriter(output_path, fourcc, prop_fps, (prop_width, prop_height))
 total_frame = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))  # number of total frame
 bar = progressbar.ProgressBar(maxval=total_frame)
 
-# Information
+# Prompt information
 print('INPUT PATH = {}\nPROPS FPS = {}\nPROPS SIZE = ({}, {})\nTOTAL FRAME = {}\n'.format(
     video_path, prop_fps, prop_height, prop_width, total_frame))
+cap.release()
 
 
 def main():
-    # Get intensity cycle of video
-    cycle = getPriorCycle(show_plot=True)
-    print('VIDEO CYCLE = {}\n'.format(cycle))
+    # Prior flicker cycle extraction
+    cycle = getPriorCycle(video_path, show_plot=True)
+    print('FLICKER CYCLE = {}\n'.format(cycle))
 
-    # Get Linear Regression filter
-    removeFlicker(cycle, show_plot=True)
+    # Luminance Equalization
+    equalLuminance(video_path, interim_path, cycle, show_plot=True)
 
 
 # Show video frames removed flicker effect
-def removeFlicker(cycle: int, show_plot: bool = False):
+def equalLuminance(input_path: str, output_path: str, cycle: int, show_plot: bool = False):
     assert cycle > 0, 'INVALID PARAMETER ERROR : CYCLE VALUE IS INVALID'
 
     def predict_regression(X, regression):
@@ -63,6 +68,7 @@ def removeFlicker(cycle: int, show_plot: bool = False):
 
     # Video loop
     print('Removing all flicker ...')
+    cap = cv2.VideoCapture()
     cap.open(video_path)
     bar.start()
     while True:
@@ -131,7 +137,7 @@ def getIntensity(image: np.ndarray) -> float:
 
 
 # Return flicker cycle of video
-def getPriorCycle(show_plot: bool = False) -> float:
+def getPriorCycle(path: str, show_plot: bool = False) -> float:
     video_intensity = []  # frame intensity list
 
     # Read all frame to get intensity
