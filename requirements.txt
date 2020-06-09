@@ -1,0 +1,5 @@
+opencv-python
+numpy
+progressbar2
+matplotlib
+sklearn
