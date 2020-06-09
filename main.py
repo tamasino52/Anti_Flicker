@@ -12,16 +12,16 @@ from sklearn.linear_model import LinearRegression
 # Flag option setting
 parser = argparse.ArgumentParser()
 parser.add_argument("-v", "--video", default="./video/C0181.MP4", help="path of original video.")
-parser.add_argument("--show_plot", default=False, type=bool, help="Enable to display plot.")
 parser.add_argument("-i", "--interim", default='./interim', help="path of interim video")
 parser.add_argument("-o", "--output", default='./output', help="path of output video")
+parser.add_argument("--show_plot", required=False, help="Enable to display plot.")
 args = parser.parse_known_args()
 
 # Path initilization
 video_path = args[0].video
 output_path = os.path.join(args[0].output, os.path.split(video_path)[1])
 interim_path = os.path.join(args[0].interim, os.path.split(video_path)[1])
-
+show_plot = args[0].show_plot
 
 def main():
 
