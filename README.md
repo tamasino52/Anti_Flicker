@@ -1,4 +1,6 @@
 # Abstract
+[![Hits](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2Ftamasino52%2FAnti_Flicker)](https://hits.seeyoufarm.com)
+
 High-speed images are affected by serious noise and illumination distortion by flickers of artificial lighting. Thus, in this repo, we suggest effective flicker noise removal method for high-speed images. First, measure flicker cycle using fourier transform from the variation in the light intensity of the frames. Then, calibrate the frames to luminance invariant frames based on linear regression model. Finally, blend connected frames considering weights of standard normal distribution to restore flicker affected images.
 
 ## Defendency
